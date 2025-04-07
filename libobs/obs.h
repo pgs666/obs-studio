@@ -705,10 +705,10 @@ EXPORT obs_source_t *obs_get_source_by_name(const char *name);
 EXPORT obs_source_t *obs_get_source_by_uuid(const char *uuid);
 
 /** Get a transition source by its name. */
-EXPORT obs_source_t *obs_get_transition_by_name(const char *name);
+OBS_DEPRECATED EXPORT obs_source_t *obs_get_transition_by_name(const char *name);
 
 /** Get a transition source by its UUID. */
-EXPORT obs_source_t *obs_get_transition_by_uuid(const char *uuid);
+OBS_DEPRECATED EXPORT obs_source_t *obs_get_transition_by_uuid(const char *uuid);
 
 /** Gets an output by its name. */
 EXPORT obs_output_t *obs_get_output_by_name(const char *name);
@@ -2072,6 +2072,12 @@ EXPORT void obs_output_add_packet_callback(obs_output_t *output,
 EXPORT void obs_output_remove_packet_callback(obs_output_t *output,
 					      void (*packet_cb)(obs_output_t *output, struct encoder_packet *pkt,
 								struct encoder_packet_time *pkt_time, void *param),
+					      void *param);
+
+/* Sets a callback to be called when the output checks if it should attempt to reconnect.
+ * If the callback returns false, the output will not attempt to reconnect. */
+EXPORT void obs_output_set_reconnect_callback(obs_output_t *output,
+					      bool (*reconnect_cb)(void *data, obs_output_t *output, int code),
 					      void *param);
 
 /* ------------------------------------------------------------------------- */
