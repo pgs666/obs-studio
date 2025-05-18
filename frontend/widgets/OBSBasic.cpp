@@ -34,6 +34,7 @@
 #include <dialogs/OBSBasicInteraction.hpp>
 #include <dialogs/OBSBasicProperties.hpp>
 #include <dialogs/OBSBasicTransform.hpp>
+#include <models/SceneCollection.hpp>
 #include <settings/OBSBasicSettings.hpp>
 #include <utility/QuickTransition.hpp>
 #include <utility/SceneRenameDelegate.hpp>
@@ -198,6 +199,8 @@ extern void setupDockAction(QDockWidget *dock);
 
 OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new Ui::OBSBasic)
 {
+	collections = {};
+
 	setAttribute(Qt::WA_NativeWindow);
 
 #ifdef TWITCH_ENABLED
@@ -488,9 +491,7 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 	QPoint newPos = curPos + statsDockPos;
 	statsDock->move(newPos);
 
-#ifdef HAVE_OBSCONFIG_H
 	ui->actionReleaseNotes->setVisible(true);
-#endif
 
 	ui->previewDisabledWidget->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(ui->enablePreviewButton, &QPushButton::clicked, this, &OBSBasic::TogglePreview);
@@ -841,7 +842,7 @@ void OBSBasic::InitOBSCallbacks()
 {
 	ProfileScope("OBSBasic::InitOBSCallbacks");
 
-	signalHandlers.reserve(signalHandlers.size() + 9);
+	signalHandlers.reserve(signalHandlers.size() + 10);
 	signalHandlers.emplace_back(obs_get_signal_handler(), "source_create", OBSBasic::SourceCreated, this);
 	signalHandlers.emplace_back(obs_get_signal_handler(), "source_remove", OBSBasic::SourceRemoved, this);
 	signalHandlers.emplace_back(obs_get_signal_handler(), "source_activate", OBSBasic::SourceActivated, this);
@@ -865,6 +866,7 @@ void OBSBasic::InitOBSCallbacks()
 						  Qt::QueuedConnection);
 		},
 		this);
+	signalHandlers.emplace_back(obs_get_signal_handler(), "canvas_remove", OBSBasic::CanvasRemoved, this);
 }
 
 #define STARTUP_SEPARATOR "==== Startup complete ==============================================="
@@ -1034,10 +1036,9 @@ void OBSBasic::OBSInit()
 		ProfileScope("OBSBasic::Load");
 		const std::string sceneCollectionName{
 			config_get_string(App()->GetUserConfig(), "Basic", "SceneCollection")};
-		const std::optional<OBSSceneCollection> configuredCollection =
+		std::optional<OBS::SceneCollection> configuredCollection =
 			GetSceneCollectionByName(sceneCollectionName);
-		const std::optional<OBSSceneCollection> foundCollection =
-			GetSceneCollectionByName(opt_starting_collection);
+		std::optional<OBS::SceneCollection> foundCollection = GetSceneCollectionByName(opt_starting_collection);
 
 		if (foundCollection) {
 			ActivateSceneCollection(foundCollection.value());
@@ -1220,8 +1221,8 @@ void OBSBasic::OBSInit()
 
 	ui->viewMenu->addSeparator();
 
-	AddProjectorMenuMonitors(ui->multiviewProjectorMenu, this, &OBSBasic::OpenMultiviewProjector);
-	connect(ui->viewMenu->menuAction(), &QAction::hovered, this, &OBSBasic::UpdateMultiviewProjectorMenu);
+	connect(ui->viewMenu->menuAction(), &QAction::hovered, this, &OBSBasic::updateMultiviewProjectorMenu);
+	OBSBasic::updateMultiviewProjectorMenu();
 
 	ui->sources->UpdateIcons();
 
@@ -1537,10 +1538,22 @@ int OBSBasic::ResetVideo()
 		OBSBasicStats::InitializeValues();
 		OBSProjector::UpdateMultiviewProjectors();
 
-		bool canMigrate = usingAbsoluteCoordinates ||
-				  (migrationBaseResolution && (migrationBaseResolution->first != ovi.base_width ||
-							       migrationBaseResolution->second != ovi.base_height));
-		ui->actionRemigrateSceneCollection->setEnabled(canMigrate);
+		if (!collections.empty()) {
+			const OBS::SceneCollection currentSceneCollection = OBSBasic::GetCurrentSceneCollection();
+
+			bool usingAbsoluteCoordinates = currentSceneCollection.getCoordinateMode() ==
+							OBS::SceneCoordinateMode::Absolute;
+			OBS::Rect migrationResolution = currentSceneCollection.getMigrationResolution();
+
+			OBS::Rect videoResolution = OBS::Rect(ovi.base_width, ovi.base_height);
+
+			bool canMigrate = usingAbsoluteCoordinates ||
+					  (!migrationResolution.isZero() && migrationResolution != videoResolution);
+
+			ui->actionRemigrateSceneCollection->setEnabled(canMigrate);
+		} else {
+			ui->actionRemigrateSceneCollection->setEnabled(false);
+		}
 
 		emit CanvasResized(ovi.base_width, ovi.base_height);
 		emit OutputResized(ovi.output_width, ovi.output_height);
